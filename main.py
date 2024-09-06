@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 
 
 def compose(p1, p2):
+    # Compose two polynomials ( = p1(p2) )
     r = P.Polynomial([0])
     for i in range(len(p1)):
         r += p1.coef[i]*p2**i
@@ -12,6 +13,7 @@ def compose(p1, p2):
 
 
 def compose_layers(layers):
+    # Compose a list of polynomials in order
     r = layers[0]
     for i in range(1, len(layers)):
         r = compose(layers[i], r)
@@ -19,6 +21,7 @@ def compose_layers(layers):
 
 
 def l2_norm(p1, p2):
+    # Compute the L2 norm of the difference between two polys of same degree
     r = 0
     for i in range(len(p1)):
         r += (p1.coef[i] - p2.coef[i])**2/(2*i+1)
@@ -42,18 +45,18 @@ def plot_polynomials(comp, target, iteration):
 
 def main():
     # Control variables
-    seed = 0
-    max_iter = 10000
-    batch_size = 100
-    stop_loss = 1e-10
-    lr = 0.05
-    random_target_poly = True
-    random_initialization = True
-    random_target_poly_deg = 9
-    random_initialization_deg = [3, 3]
-    use_adam = True  # New control variable to activate/deactivate Adam optimizer
-    beta1 = 0.9  # Adam parameter
-    beta2 = 0.999  # Adam parameter
+    seed = 0            # Seed for random number generator
+    max_iter = 10000    # Maximum number of iterations
+    batch_size = 100    # Number of points used for each iteration
+    stop_loss = 1e-10   # Stop when loss is below this value
+    lr = 0.02           # Learning rate
+    random_target_poly = True       # Use a random target polynomial
+    random_initialization = True    # Use random initialization for the layers
+    random_target_poly_deg = 27     # Degree of the target polynomial
+    random_initialization_deg = [3, 3, 3]  # Degrees of the initial polynomials
+    use_adam = True  # activate/deactivate Adam optimizer
+    beta1 = 0.9     # Adam parameter
+    beta2 = 0.999   # Adam parameter
     epsilon = 1e-8  # Adam parameter
 
     random.seed(seed)
@@ -70,7 +73,11 @@ def main():
         target = P.Polynomial(random.rand(random_target_poly_deg+1)*5-2.5)
 
     if random_initialization:
-        layers = [P.Polynomial(random.rand(i+1)*5-2.5) for i in random_initialization_deg]
+        layers = [P.Polynomial(random.rand(i+1)*2-1) for i in random_initialization_deg]
+        # NOTE: Starting with weights between -1 and 1 immensely improves
+        # performances compared to a larger interval. This is probably due to
+        # weights blowing up when composing polynomials, which gradient descent
+        # has a hard time correcting
 
     print("layers:")
     for layer in layers:
@@ -91,18 +98,27 @@ def main():
         v = [np.zeros_like(layer.coef) for layer in layers]
 
     while (loss > stop_loss) and (iteration < max_iter):
+        # Initialize gradient
         grad = np.array([np.zeros_like(layer.coef) for layer in layers])
+
+        # Compute the derivative of each layer wrt. its input
         poly_derivatives = [layer.deriv() for layer in layers]
+
+        # Pick random points for the forward pass
         forward_pass_pts = random.rand(batch_size)
 
         for pt in forward_pass_pts:
+            # Compute the activations of each layer
             activations = [pt]
             for layer in layers:
                 activations.append(layer(activations[-1]))
+
+            # Compute the derivative of each layer at the activations
             activations_derivatives = []
             for i, layer in enumerate(poly_derivatives):
                 activations_derivatives.append(layer(activations[i]))
 
+            # Backward pass
             dloss = activations[-1] - target(pt)
             for i in range(len(layers)-1, -1, -1):
                 for j in range(len(layers[i])):
@@ -110,8 +126,10 @@ def main():
 
                 dloss *= activations_derivatives[i]
 
+        # Normalize the gradient
         grad = grad/batch_size
 
+        # Update the weights
         if use_adam:
             for i in range(len(layers)):
                 m[i] = beta1 * m[i] + (1 - beta1) * grad[i]
