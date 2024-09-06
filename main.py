@@ -13,7 +13,8 @@ def compose(p1, p2):
 
 
 def compose_layers(layers):
-    # Compose a list of polynomials in order
+    # Compose a list of polynomials in order, where each poly is applied in
+    # order (meaning given [p1, p2, p3], the output is p3(p2(p1(x))))
     r = layers[0]
     for i in range(1, len(layers)):
         r = compose(layers[i], r)
