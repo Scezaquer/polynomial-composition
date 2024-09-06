@@ -5,7 +5,6 @@ import matplotlib.pyplot as plt
 
 
 def compose(p1, p2):
-    # Compute the composition of p1 and p2 ( =p1(p2) )
     r = P.Polynomial([0])
     for i in range(len(p1)):
         r += p1.coef[i]*p2**i
@@ -13,7 +12,6 @@ def compose(p1, p2):
 
 
 def compose_layers(layers):
-    # Compute the composition of all the layers
     r = layers[0]
     for i in range(1, len(layers)):
         r = compose(layers[i], r)
@@ -21,7 +19,6 @@ def compose_layers(layers):
 
 
 def l2_norm(p1, p2):
-    # Compute the l2 norm of the difference between p1 and p2
     r = 0
     for i in range(len(p1)):
         r += (p1.coef[i] - p2.coef[i])**2/(2*i+1)
@@ -31,7 +28,6 @@ def l2_norm(p1, p2):
 
 
 def plot_polynomials(comp, target, iteration):
-    # Set up x-axis points for plotting
     x_vals = np.linspace(0, 1, 200)
     y_comp = comp(x_vals)
     y_target = target(x_vals)
@@ -41,26 +37,26 @@ def plot_polynomials(comp, target, iteration):
     plt.plot(x_vals, y_target, label="Target Polynomial", color='red', linestyle='--')
     plt.title(f"Iteration {iteration}")
     plt.legend()
-    plt.pause(0.05)  # Pause to update the plot
+    plt.pause(0.05)
 
 
 def main():
     # Control variables
-    seed = 0            # Set the seed for reproducibility
-    max_iter = 1500     # Maximum number of iterations
-    batch_size = 100    # Number of points to sample for the forward pass
-    stop_loss = 1e-10   # Stop when the l2 norm of the difference between the target polynomial and the composed polynomial is less than this value
-    lr = 0.001          # Learning rate
-    random_target_poly = True     # If True, the target polynomial will be randomly initialized
-    random_initialization = True  # If True, the initial polynomials will be randomly initialized
-    random_target_poly_deg = 9   # Degree of the target polynomial if random_target_poly is True
-    random_initialization_deg = [3, 3]  # Degree of the initial polynomials if random_initialization is True
+    seed = 0
+    max_iter = 10000
+    batch_size = 100
+    stop_loss = 1e-10
+    lr = 0.05
+    random_target_poly = True
+    random_initialization = True
+    random_target_poly_deg = 9
+    random_initialization_deg = [3, 3]
+    use_adam = True  # New control variable to activate/deactivate Adam optimizer
+    beta1 = 0.9  # Adam parameter
+    beta2 = 0.999  # Adam parameter
+    epsilon = 1e-8  # Adam parameter
 
     random.seed(seed)
-
-    # target = P.Polynomial([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
-    # p1 = P.Polynomial([1, -3, 2, 3])
-    # p2 = P.Polynomial([-2, 1, 1.5, 4])
 
     prod = 1
     for i in random_initialization_deg:
@@ -82,18 +78,20 @@ def main():
     print("target:")
     print(target)
 
-    # Compute the l2 norm of the difference between the target polynomial and the composition of p1 and p2
     loss = l2_norm(target, compose_layers(layers))
     print(loss)
     iteration = 0
 
-    # Set up the plot
-    plt.ion()  # Turn on interactive mode for live updates
+    plt.ion()
     plt.figure()
 
+    # Initialize Adam parameters
+    if use_adam:
+        m = [np.zeros_like(layer.coef) for layer in layers]
+        v = [np.zeros_like(layer.coef) for layer in layers]
+
     while (loss > stop_loss) and (iteration < max_iter):
-        # Compute the gradient of the loss function
-        grad = np.array([[0. for _ in layer] for layer in layers])
+        grad = np.array([np.zeros_like(layer.coef) for layer in layers])
         poly_derivatives = [layer.deriv() for layer in layers]
         forward_pass_pts = random.rand(batch_size)
 
@@ -105,25 +103,28 @@ def main():
             for i, layer in enumerate(poly_derivatives):
                 activations_derivatives.append(layer(activations[i]))
 
-            # Backprop
             dloss = activations[-1] - target(pt)
             for i in range(len(layers)-1, -1, -1):
                 for j in range(len(layers[i])):
-                    grad[i, j] += dloss*activations[i]**j
+                    grad[i][j] += dloss*activations[i]**j
 
                 dloss *= activations_derivatives[i]
 
-        # Normalize the gradient
         grad = grad/batch_size
 
-        # Update the parameters
-        for i, layer in enumerate(layers):
-            layers[i] -= lr*grad[i]
+        if use_adam:
+            for i in range(len(layers)):
+                m[i] = beta1 * m[i] + (1 - beta1) * grad[i]
+                v[i] = beta2 * v[i] + (1 - beta2) * (grad[i] ** 2)
+                m_hat = m[i] / (1 - beta1 ** (iteration + 1))
+                v_hat = v[i] / (1 - beta2 ** (iteration + 1))
+                layers[i].coef -= lr * m_hat / (np.sqrt(v_hat) + epsilon)
+        else:
+            for i, layer in enumerate(layers):
+                layers[i].coef -= lr * grad[i]
 
-        # Compute the l2 norm of the difference between the target polynomial and the composition of p1 and p2
         loss = l2_norm(target, compose_layers(layers))
 
-        # Update the plot every 100 iterations
         if iteration % 100 == 0:
             print(f"{iteration}, {loss}")
             plot_polynomials(compose_layers(layers), target, iteration)
@@ -131,9 +132,14 @@ def main():
         iteration += 1
 
     print(f"{iteration}, {loss}")
+    print("Final polynomials:")
+    for layer in layers:
+        print(layer)
+    print()
     print(compose_layers(layers).__str__().replace("·", ""))
-    plt.ioff()  # Turn off interactive mode
-    plt.show()  # Keep the final plot visible
+    plot_polynomials(compose_layers(layers), target, iteration)
+    plt.ioff()
+    plt.show()
 
 
 if __name__ == '__main__':
