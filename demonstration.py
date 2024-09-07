@@ -7,7 +7,8 @@ def random_poly():
     gradient_descent(
         random_target_poly_deg=27,
         random_initialization_deg=[3, 3, 3],
-        seed=0)
+        seed=0,
+        max_iter=25000)
 
 
 def known_poly():

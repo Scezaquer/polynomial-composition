@@ -3,14 +3,28 @@ from numpy import random
 import numpy as np
 import matplotlib.pyplot as plt
 from typing import Optional, List, Tuple, Any
+import time
 
 
 def compose(p1, p2):
-    # Compose two polynomials ( = p1(p2) )
-    r = P.Polynomial([0])
-    for i in range(len(p1)):
-        r += p1.coef[i]*p2**i
-    return r
+    # Compose two polynomials (p1(p2))
+
+    coef1 = p1.coef
+    coef2 = p2.coef
+
+    max_degree = (len(coef1) - 1) * (len(coef2) - 1)
+    result = np.zeros(max_degree + 1)
+
+    # Compute powers of p2 efficiently
+    power = np.ones(1)  # p2^0 = 1
+    for i, c in enumerate(coef1):
+        if c != 0:  # Skip zero coefficients
+            result[:len(power)] += c * power
+        if i < len(coef1) - 1:  # Don't compute unnecessary power
+            power = np.convolve(power, coef2)
+
+    # Trim trailing zeros and create a Polynomial object
+    return P.Polynomial(np.trim_zeros(result, 'b'))
 
 
 def compose_layers(layers):
@@ -23,13 +37,28 @@ def compose_layers(layers):
 
 
 def l2_norm(p1, p2):
-    # Compute the L2 norm of the difference between two polys of same degree
-    r = 0
-    for i in range(len(p1)):
-        r += (p1.coef[i] - p2.coef[i])**2/(2*i+1)
-        for j in range(i):
-            r += 2*(p1.coef[i] - p2.coef[i])*(p1.coef[j] - p2.coef[j])/(i+j+1)
-    return r
+    # Extract coefficients as NumPy arrays
+    c1 = p1.coef
+    c2 = p2.coef
+
+    # Ensure both polynomials have the same degree
+    max_degree = max(len(c1), len(c2))
+    c1 = np.pad(c1, (0, max_degree - len(c1)))
+    c2 = np.pad(c2, (0, max_degree - len(c2)))
+
+    # Compute the difference of coefficients
+    diff = c1 - c2
+
+    # Compute the first part of the sum
+    i = np.arange(max_degree)
+    r1 = np.sum(diff**2 / (2*i + 1))
+
+    # Compute the second part of the sum
+    i, j = np.meshgrid(i, i)
+    mask = i > j
+    r2 = 2 * np.sum(diff[i[mask]] * diff[j[mask]] / (i[mask] + j[mask] + 1))
+
+    return r1 + r2
 
 
 def plot_polynomials(comp, target, iteration):
@@ -52,16 +81,17 @@ def gradient_descent(
         random_initialization_deg: List[int] = [3, 3, 3],
         seed: Optional[int] = None,
         max_iter: int = 10000,
-        batch_size: int = 200,
+        batch_size: int = 2000,
         stop_loss: float = 1e-10,
-        lr: float = 0.002,
+        lr: float = 0.001,
         use_adam: bool = True,
         beta1: float = 0.99,
         beta2: float = 0.999,
         epsilon: float = 1e-8,
         verbose: bool = True,
         plot: bool = True,
-        use_scale_lr: bool = False) -> Tuple[List[P.Polynomial], List[Any]]:
+        use_scale_lr: bool = False,
+        print_frequency: int = 250) -> Tuple[List[P.Polynomial], List[Any]]:
     """
     Perform gradient descent to approximate a target polynomial using a composition of smaller polynomials.
 
@@ -86,6 +116,7 @@ def gradient_descent(
         verbose (bool): If True, print progress information during optimization.
         plot (bool): If True, plot the approximation progress during optimization.
         use_scale_lr (bool): If True, scale the learning rate by the degree of the polynomial at each layer. This can help stabilize the optimization process.
+        print_frequency (int): Frequency at which to print progress information.
 
     Returns:
         Tuple[List[numpy.polynomial.Polynomial], List[Any]]: The list of polynomials whose composition approximates the target polynomial, and the list of losses at each iteration.
@@ -97,6 +128,17 @@ def gradient_descent(
         The function modifies the input layers in-place if provided, or the generated random layers otherwise.
         The final approximation can be obtained by composing the resulting layers after the function call.
     """
+
+    init_timer = 0.
+    forward_pass_timer = 0.
+    backprop_timer = 0.
+    adam_timer = 0.
+    io_timer = 0.
+    main_loop_timer = 0.
+    loss_timer = 0.
+    loop_init_timer = 0.
+
+    st = time.process_time()
 
     if seed is not None:
         random.seed(seed)
@@ -156,18 +198,52 @@ def gradient_descent(
         m = [np.zeros_like(layer.coef) for layer in layers]
         v = [np.zeros_like(layer.coef) for layer in layers]
 
+    largest_layer = max(layers, key=lambda x: x.degree())
+
+    init_timer += time.process_time() - st
+
+    st1 = time.process_time()
+    grad = np.zeros((len(layers), len(largest_layer.coef)))
+
     while (loss > stop_loss) and (iteration < max_iter):
+        st6 = time.process_time()
         # Initialize gradient
-        largest_layer = max(layers, key=lambda x: x.degree())
-        grad = np.array([np.zeros_like(largest_layer.coef) for _ in layers])
+        grad.fill(0)
 
         # Compute the derivative of each layer wrt. its input
         poly_derivatives = [layer.deriv() for layer in layers]
 
         # Pick random points for the forward pass
         forward_pass_pts = random.rand(batch_size)
+        loop_init_timer += time.process_time() - st6
 
-        for pt in forward_pass_pts:
+        st2 = time.process_time()
+
+        # Compute the activations of each layer
+        activations = np.zeros((batch_size, len(layers)+1))
+        activations[:, 0] = forward_pass_pts
+        for i, layer in enumerate(layers):
+            activations[:, i+1] = layer(activations[:, i])
+
+        # Compute the derivative of each layer at the activations
+        activations_derivatives = np.zeros((batch_size, len(layers)))
+        for i, layer in enumerate(poly_derivatives):
+            activations_derivatives[:, i] = layer(activations[:, i])
+
+        forward_pass_timer += time.process_time() - st2
+
+        st3 = time.process_time()
+        # Backward pass
+        dloss = activations[:, -1] - target(forward_pass_pts)
+        for i in range(len(layers)-1, -1, -1):
+            for j in range(len(layers[i])):
+                grad[i, j] += np.sum(dloss*activations[:, i]**j)
+
+            if i > 0:
+                dloss *= activations_derivatives[:, i]
+        backprop_timer += time.process_time() - st3
+
+        """for pt in forward_pass_pts:
             # Compute the activations of each layer
             activations = [pt]
             for layer in layers:
@@ -184,11 +260,12 @@ def gradient_descent(
                 for j in range(len(layers[i])):
                     grad[i][j] += dloss*activations[i]**j
 
-                dloss *= activations_derivatives[i]
+                dloss *= activations_derivatives[i]"""
 
         # Normalize the gradient
         grad = grad/batch_size
 
+        st4 = time.process_time()
         # Update the weights
         if use_adam:
             for i in range(len(layers)):
@@ -201,16 +278,23 @@ def gradient_descent(
             for i, layer in enumerate(layers):
                 layers[i].coef -= grad[i] * (lrs[i] if use_scale_lr else lr)
 
+        adam_timer += time.process_time() - st4
+
+        st7 = time.process_time()
         loss = l2_norm(target, compose_layers(layers))
+        loss_timer += time.process_time() - st7
         losses.append(loss)
 
-        if iteration % 100 == 0:
+        st5 = time.process_time()
+        if iteration % print_frequency == 0:
             if verbose:
                 print(f"{iteration}, {loss}")
             if plot:
                 plot_polynomials(compose_layers(layers), target, iteration)
-
+        io_timer += time.process_time() - st5
         iteration += 1
+
+    main_loop_timer += time.process_time() - st1
 
     if verbose:
         print(f"{iteration}, {loss}")
@@ -225,6 +309,15 @@ def gradient_descent(
         plt.ioff()
         plt.show()
 
+    print(f"Initialization time: {init_timer:.2f}s")
+    print(f"Forward pass time: {forward_pass_timer:.2f}s")
+    print(f"Backward pass time: {backprop_timer:.2f}s")
+    print(f"Adam time: {adam_timer:.2f}s")
+    print(f"I/O time: {io_timer:.2f}s")
+    print(f"Main loop time: {main_loop_timer:.2f}s")
+    print(f"Loss computation time: {loss_timer:.2f}s")
+    print(f"Loop init time: {loop_init_timer:.2f}s")
+
     return layers, losses
 
 
@@ -236,16 +329,17 @@ def main():
     random_initialization_deg = [3, 3, 3]  # Degrees of the initial polynomials
     seed = 0            # Seed for random number generator
     max_iter = 10000    # Maximum number of iterations
-    batch_size = 100    # Number of points used for each iteration
+    batch_size = 2000  # Number of points used for each iteration
     stop_loss = 1e-10   # Stop when loss is below this value
-    lr = 0.02           # Learning rate
+    lr = 0.001          # Learning rate
     use_adam = True  # activate/deactivate Adam optimizer
-    beta1 = 0.9     # Adam parameter
+    beta1 = 0.99    # Adam parameter
     beta2 = 0.999   # Adam parameter
     epsilon = 1e-8  # Adam parameter
     verbose = True  # Print progress
     plot = True     # Plot progress
     use_scale_lr = False  # Scale learning rate by degree of polynomial at each layer
+    print_frequency = 250  # Frequency at which to print progress
 
     gradient_descent(
         target=target,
@@ -263,7 +357,8 @@ def main():
         epsilon=epsilon,
         verbose=verbose,
         plot=plot,
-        use_scale_lr=use_scale_lr
+        use_scale_lr=use_scale_lr,
+        print_frequency=print_frequency
     )
 
 
