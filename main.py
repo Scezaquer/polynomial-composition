@@ -2,6 +2,7 @@ from numpy import polynomial as P
 from numpy import random
 import numpy as np
 import matplotlib.pyplot as plt
+from typing import Optional, List, Tuple, Any
 
 
 def compose(p1, p2):
@@ -44,54 +45,111 @@ def plot_polynomials(comp, target, iteration):
     plt.pause(0.05)
 
 
-def main():
-    # Control variables
-    seed = 0            # Seed for random number generator
-    max_iter = 10000    # Maximum number of iterations
-    batch_size = 100    # Number of points used for each iteration
-    stop_loss = 1e-10   # Stop when loss is below this value
-    lr = 0.02           # Learning rate
-    random_target_poly = True       # Use a random target polynomial
-    random_initialization = True    # Use random initialization for the layers
-    random_target_poly_deg = 27     # Degree of the target polynomial
-    random_initialization_deg = [3, 3, 3]  # Degrees of the initial polynomials
-    use_adam = True  # activate/deactivate Adam optimizer
-    beta1 = 0.9     # Adam parameter
-    beta2 = 0.999   # Adam parameter
-    epsilon = 1e-8  # Adam parameter
+def gradient_descent(
+        target: Optional[P.Polynomial] = None,
+        layers: Optional[List[P.Polynomial]] = None,
+        random_target_poly_deg: int = 27,
+        random_initialization_deg: List[int] = [3, 3, 3],
+        seed: Optional[int] = None,
+        max_iter: int = 10000,
+        batch_size: int = 100,
+        stop_loss: float = 1e-10,
+        lr: float = 0.02,
+        use_adam: bool = True,
+        beta1: float = 0.9,
+        beta2: float = 0.999,
+        epsilon: float = 1e-8,
+        verbose: bool = True,
+        plot: bool = True,
+        use_scale_lr: bool = False) -> Tuple[List[P.Polynomial], List[Any]]:
+    """
+    Perform gradient descent to approximate a target polynomial using a composition of smaller polynomials.
 
-    random.seed(seed)
+    This function uses stochastic gradient descent (SGD) or Adam optimization to find a composition of
+    polynomials that closely approximates a target polynomial. It can work with a given target polynomial
+    or generate a random one.
 
+    Args:
+        target (Optional[numpy.polynomial.Polynomial]): The target polynomial to approximate. If None, a random polynomial is generated.
+        layers (Optional[List[numpy.polynomial.Polynomial]]): Initial list of polynomials to compose. If None, random polynomials are generated.
+        random_target_poly_deg (int): Degree of the random target polynomial if target is None.
+        random_initialization_deg (List[int]): Degrees of the initial random polynomials if layers is None.
+        seed (Optional[int]): Seed for the random number generator. If None, no seed is set.
+        max_iter (int): Maximum number of iterations for the optimization process.
+        batch_size (int): Number of points used for each iteration in stochastic gradient descent.
+        stop_loss (float): Stopping criterion; the optimization stops when the loss is below this value.
+        lr (float): Learning rate for the gradient descent steps.
+        use_adam (bool): If True, use Adam optimization; if False, use standard SGD.
+        beta1 (float): Adam optimizer parameter for the first moment estimate.
+        beta2 (float): Adam optimizer parameter for the second moment estimate.
+        epsilon (float): Small value added to denominator in Adam update to improve numerical stability.
+        verbose (bool): If True, print progress information during optimization.
+        plot (bool): If True, plot the approximation progress during optimization.
+        use_scale_lr (bool): If True, scale the learning rate by the degree of the polynomial at each layer. This can help stabilize the optimization process.
+
+    Returns:
+        Tuple[List[numpy.polynomial.Polynomial], List[Any]]: The list of polynomials whose composition approximates the target polynomial, and the list of losses at each iteration.
+
+    Raises:
+        Warning: If the product of the degrees of the initial polynomials does not match the degree of the target polynomial.
+
+    Note:
+        The function modifies the input layers in-place if provided, or the generated random layers otherwise.
+        The final approximation can be obtained by composing the resulting layers after the function call.
+    """
+
+    if seed is not None:
+        random.seed(seed)
+
+    # Warning in case the product of the degrees of the initial polynomials
+    # does not match the degree of the target polynomial
     prod = 1
-    for i in random_initialization_deg:
-        prod *= i
-    if prod != random_target_poly_deg:
+    lrs = [lr]
+    if layers is not None:
+        for layer in layers[::-1]:
+            prod *= layer.degree()
+            lrs.append(lrs[-1]/layer.degree())
+    else:
+        for i in random_initialization_deg:
+            prod *= i
+            lrs.append(lrs[-1]/i)
+    lrs = lrs[:-1][::-1]
+
+    if (target is None and prod != random_target_poly_deg) or (target is not None and prod != target.degree()):
         raise Warning(
             "The product of the degrees of the initial polynomials "
-            "is not equal to the degree of the target polynomial")
+            f"({'x'.join(map(str, random_initialization_deg))}={prod}) "
+            "is not equal to the degree of the target polynomial "
+            f"({random_target_poly_deg}).")
 
-    if random_target_poly:
+    # Initialize target and layers
+    if target is None:
         target = P.Polynomial(random.rand(random_target_poly_deg+1)*5-2.5)
 
-    if random_initialization:
-        layers = [P.Polynomial(random.rand(i+1)*2-1) for i in random_initialization_deg]
+    if layers is None:
+        layers = [P.Polynomial(random.rand(i+1)-0.5) for i in random_initialization_deg]
         # NOTE: Starting with weights between -1 and 1 immensely improves
         # performances compared to a larger interval. This is probably due to
         # weights blowing up when composing polynomials, which gradient descent
         # has a hard time correcting
 
-    print("layers:")
-    for layer in layers:
-        print(layer)
-    print("target:")
-    print(target)
-
+    losses = []
     loss = l2_norm(target, compose_layers(layers))
-    print(loss)
+    losses.append(loss)
+
+    if verbose:
+        print("layers:")
+        for layer in layers:
+            print(layer)
+        print("target:")
+        print(target)
+        print(loss)
+
     iteration = 0
 
-    plt.ion()
-    plt.figure()
+    if plot:
+        plt.ion()
+        plt.figure()
 
     # Initialize Adam parameters
     if use_adam:
@@ -137,28 +195,75 @@ def main():
                 v[i] = beta2 * v[i] + (1 - beta2) * (grad[i] ** 2)
                 m_hat = m[i] / (1 - beta1 ** (iteration + 1))
                 v_hat = v[i] / (1 - beta2 ** (iteration + 1))
-                layers[i].coef -= lr * m_hat / (np.sqrt(v_hat) + epsilon)
+                layers[i].coef -= m_hat / (np.sqrt(v_hat) + epsilon) * (lrs[i] if use_scale_lr else lr)
         else:
             for i, layer in enumerate(layers):
-                layers[i].coef -= lr * grad[i]
+                layers[i].coef -= grad[i] * (lrs[i] if use_scale_lr else lr)
 
         loss = l2_norm(target, compose_layers(layers))
+        losses.append(loss)
 
         if iteration % 100 == 0:
-            print(f"{iteration}, {loss}")
-            plot_polynomials(compose_layers(layers), target, iteration)
+            if verbose:
+                print(f"{iteration}, {loss}")
+            if plot:
+                plot_polynomials(compose_layers(layers), target, iteration)
 
         iteration += 1
 
-    print(f"{iteration}, {loss}")
-    print("Final polynomials:")
-    for layer in layers:
-        print(layer)
-    print()
-    print(compose_layers(layers).__str__().replace("·", ""))
-    plot_polynomials(compose_layers(layers), target, iteration)
-    plt.ioff()
-    plt.show()
+    if verbose:
+        print(f"{iteration}, {loss}")
+        print("Final polynomials:")
+        for layer in layers:
+            print(layer)
+        print()
+        print(compose_layers(layers).__str__().replace("·", ""))
+
+    if plot:
+        plot_polynomials(compose_layers(layers), target, iteration)
+        plt.ioff()
+        plt.show()
+
+    return layers, losses
+
+
+def main():
+    # Control variables
+    target = None       # Target polynomial
+    layers = None       # Initial polynomials
+    random_target_poly_deg = 27     # Degree of the target polynomial
+    random_initialization_deg = [3, 3, 3]  # Degrees of the initial polynomials
+    seed = 0            # Seed for random number generator
+    max_iter = 10000    # Maximum number of iterations
+    batch_size = 100    # Number of points used for each iteration
+    stop_loss = 1e-10   # Stop when loss is below this value
+    lr = 0.02           # Learning rate
+    use_adam = True  # activate/deactivate Adam optimizer
+    beta1 = 0.9     # Adam parameter
+    beta2 = 0.999   # Adam parameter
+    epsilon = 1e-8  # Adam parameter
+    verbose = True  # Print progress
+    plot = True     # Plot progress
+    use_scale_lr = False  # Scale learning rate by degree of polynomial at each layer
+
+    gradient_descent(
+        target=target,
+        layers=layers,
+        random_target_poly_deg=random_target_poly_deg,
+        random_initialization_deg=random_initialization_deg,
+        seed=seed,
+        max_iter=max_iter,
+        batch_size=batch_size,
+        stop_loss=stop_loss,
+        lr=lr,
+        use_adam=use_adam,
+        beta1=beta1,
+        beta2=beta2,
+        epsilon=epsilon,
+        verbose=verbose,
+        plot=plot,
+        use_scale_lr=use_scale_lr
+    )
 
 
 if __name__ == '__main__':

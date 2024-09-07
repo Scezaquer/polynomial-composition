@@ -18,4 +18,5 @@ TODO: Test when the target is a composition of known polynomials
 TODO: Make sure just rescaling works to extend the interval to anything
 TODO: Find edgecases
 TODO: What happens when changing batch size? lr? dynamic batch size over time?
-best adam params? decaying lr? Changing batch size based on degree?
+best adam params? decaying lr? Changing batch size based on degree? Change lr
+based on layer (earliest layers have smallest lr since changes propagate more)?
