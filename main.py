@@ -52,11 +52,11 @@ def gradient_descent(
         random_initialization_deg: List[int] = [3, 3, 3],
         seed: Optional[int] = None,
         max_iter: int = 10000,
-        batch_size: int = 100,
+        batch_size: int = 200,
         stop_loss: float = 1e-10,
-        lr: float = 0.02,
+        lr: float = 0.002,
         use_adam: bool = True,
-        beta1: float = 0.9,
+        beta1: float = 0.99,
         beta2: float = 0.999,
         epsilon: float = 1e-8,
         verbose: bool = True,
@@ -158,7 +158,8 @@ def gradient_descent(
 
     while (loss > stop_loss) and (iteration < max_iter):
         # Initialize gradient
-        grad = np.array([np.zeros_like(layer.coef) for layer in layers])
+        largest_layer = max(layers, key=lambda x: x.degree())
+        grad = np.array([np.zeros_like(largest_layer.coef) for _ in layers])
 
         # Compute the derivative of each layer wrt. its input
         poly_derivatives = [layer.deriv() for layer in layers]
@@ -191,8 +192,8 @@ def gradient_descent(
         # Update the weights
         if use_adam:
             for i in range(len(layers)):
-                m[i] = beta1 * m[i] + (1 - beta1) * grad[i]
-                v[i] = beta2 * v[i] + (1 - beta2) * (grad[i] ** 2)
+                m[i] = beta1 * m[i] + (1 - beta1) * grad[i][:len(m[i])]
+                v[i] = beta2 * v[i] + (1 - beta2) * (grad[i][:len(v[i])] ** 2)
                 m_hat = m[i] / (1 - beta1 ** (iteration + 1))
                 v_hat = v[i] / (1 - beta2 ** (iteration + 1))
                 layers[i].coef -= m_hat / (np.sqrt(v_hat) + epsilon) * (lrs[i] if use_scale_lr else lr)
