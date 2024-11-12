@@ -148,7 +148,13 @@ def test_hyperparameters():
         plot_experiment_results(f"use_scale_lr_{use_scale}", results)
 
 
+def test_very_long_run():
+    long_results = run_experiment("250k_iter", 10, max_iter=250_000, verbose=False, plot=False)
+    plot_experiment_results("250k_iter", long_results)
+
+
 if __name__ == "__main__":
+    test_very_long_run()
     test_adam_vs_sgd()
     test_multiple_initializations()
     test_polynomial_degree_limits()

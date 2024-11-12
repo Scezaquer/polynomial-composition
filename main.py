@@ -68,7 +68,8 @@ def plot_polynomials(comp, target, iteration):
 
     plt.clf()
     plt.plot(x_vals, y_comp, label="Composed Polynomial", color='blue')
-    plt.plot(x_vals, y_target, label="Target Polynomial", color='red', linestyle='--')
+    plt.plot(x_vals, y_target, label="Target Polynomial",
+             color='red', linestyle='--')
     plt.title(f"Iteration {iteration}")
     plt.legend()
     plt.pause(0.05)
@@ -169,15 +170,20 @@ def gradient_descent(
         target = P.Polynomial(random.rand(random_target_poly_deg+1)*5-2.5)
 
     if layers is None:
-        layers = [P.Polynomial(random.rand(i+1)-0.5) for i in random_initialization_deg]
+        layers = [P.Polynomial(random.rand(i+1)-0.5)
+                  for i in random_initialization_deg]
         # NOTE: Starting with weights between -1 and 1 immensely improves
         # performances compared to a larger interval. This is probably due to
         # weights blowing up when composing polynomials, which gradient descent
         # has a hard time correcting
 
+    forward_pass_pts = np.linspace(0, 1, batch_size)
+
     losses = []
-    loss = l2_norm(target, compose_layers(layers))
-    losses.append(loss)
+    loss = 1e10
+    # loss = l2_norm(target, compose_layers(layers))
+    # loss = np.max(np.abs(target(forward_pass_pts) - compose_layers(layers)(forward_pass_pts)))
+    # losses.append(loss)
 
     if verbose:
         print("layers:")
@@ -185,7 +191,6 @@ def gradient_descent(
             print(layer)
         print("target:")
         print(target)
-        print(loss)
 
     iteration = 0
 
@@ -214,7 +219,8 @@ def gradient_descent(
         poly_derivatives = [layer.deriv() for layer in layers]
 
         # Pick random points for the forward pass
-        forward_pass_pts = random.rand(batch_size)
+        # forward_pass_pts = random.rand(batch_size)
+
         loop_init_timer += time.process_time() - st6
 
         st2 = time.process_time()
@@ -235,6 +241,10 @@ def gradient_descent(
         st3 = time.process_time()
         # Backward pass
         dloss = activations[:, -1] - target(forward_pass_pts)
+
+        loss = max(np.abs(dloss))
+        losses.append(loss)
+
         for i in range(len(layers)-1, -1, -1):
             for j in range(len(layers[i])):
                 grad[i, j] += np.sum(dloss*activations[:, i]**j)
@@ -242,25 +252,6 @@ def gradient_descent(
             if i > 0:
                 dloss *= activations_derivatives[:, i]
         backprop_timer += time.process_time() - st3
-
-        """for pt in forward_pass_pts:
-            # Compute the activations of each layer
-            activations = [pt]
-            for layer in layers:
-                activations.append(layer(activations[-1]))
-
-            # Compute the derivative of each layer at the activations
-            activations_derivatives = []
-            for i, layer in enumerate(poly_derivatives):
-                activations_derivatives.append(layer(activations[i]))
-
-            # Backward pass
-            dloss = activations[-1] - target(pt)
-            for i in range(len(layers)-1, -1, -1):
-                for j in range(len(layers[i])):
-                    grad[i][j] += dloss*activations[i]**j
-
-                dloss *= activations_derivatives[i]"""
 
         # Normalize the gradient
         grad = grad/batch_size
@@ -273,17 +264,20 @@ def gradient_descent(
                 v[i] = beta2 * v[i] + (1 - beta2) * (grad[i][:len(v[i])] ** 2)
                 m_hat = m[i] / (1 - beta1 ** (iteration + 1))
                 v_hat = v[i] / (1 - beta2 ** (iteration + 1))
-                layers[i].coef -= m_hat / (np.sqrt(v_hat) + epsilon) * (lrs[i] if use_scale_lr else lr)
+                layers[i].coef -= m_hat / \
+                    (np.sqrt(v_hat) + epsilon) * \
+                    (lrs[i] if use_scale_lr else lr)
         else:
             for i, layer in enumerate(layers):
                 layers[i].coef -= grad[i] * (lrs[i] if use_scale_lr else lr)
 
         adam_timer += time.process_time() - st4
 
-        st7 = time.process_time()
-        loss = l2_norm(target, compose_layers(layers))
+        """st7 = time.process_time()
+        #loss = l2_norm(target, compose_layers(layers))
+        loss = np.max(np.abs(target(forward_pass_pts) - compose_layers(layers)(forward_pass_pts)))
         loss_timer += time.process_time() - st7
-        losses.append(loss)
+        losses.append(loss)"""
 
         st5 = time.process_time()
         if iteration % print_frequency == 0:
@@ -295,6 +289,9 @@ def gradient_descent(
         iteration += 1
 
     main_loop_timer += time.process_time() - st1
+    
+    loss = np.max(np.abs(target(forward_pass_pts) - compose_layers(layers)(forward_pass_pts)))
+    losses.append(loss)
 
     if verbose:
         print(f"{iteration}, {loss}")
@@ -310,13 +307,13 @@ def gradient_descent(
         plt.show()
 
     print(f"Initialization time: {init_timer:.2f}s")
+    print(f"Loop init time: {loop_init_timer:.2f}s")
     print(f"Forward pass time: {forward_pass_timer:.2f}s")
     print(f"Backward pass time: {backprop_timer:.2f}s")
     print(f"Adam time: {adam_timer:.2f}s")
+    print(f"Loss computation time: {loss_timer:.2f}s")
     print(f"I/O time: {io_timer:.2f}s")
     print(f"Main loop time: {main_loop_timer:.2f}s")
-    print(f"Loss computation time: {loss_timer:.2f}s")
-    print(f"Loop init time: {loop_init_timer:.2f}s")
 
     return layers, losses
 
@@ -332,14 +329,18 @@ def main():
     batch_size = 2000  # Number of points used for each iteration
     stop_loss = 1e-10   # Stop when loss is below this value
     lr = 0.001          # Learning rate
-    use_adam = True  # activate/deactivate Adam optimizer
+    use_adam = False  # activate/deactivate Adam optimizer
     beta1 = 0.99    # Adam parameter
     beta2 = 0.999   # Adam parameter
     epsilon = 1e-8  # Adam parameter
     verbose = True  # Print progress
-    plot = True     # Plot progress
+    plot = False     # Plot progress
     use_scale_lr = False  # Scale learning rate by degree of polynomial at each layer
     print_frequency = 250  # Frequency at which to print progress
+
+    """target = P.Polynomial(np.ones(5))
+    layers = [P.Polynomial([-0.1, 0.1, 0.2]),
+              P.Polynomial([-0.1, 0.1, 0.2])]"""
 
     gradient_descent(
         target=target,
@@ -363,4 +364,10 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    use_adam = True
+    max_iter = 25000
+    seed = 473750
+
+    gradient_descent(use_adam=use_adam, max_iter=max_iter, seed=seed)
+
+    # main()

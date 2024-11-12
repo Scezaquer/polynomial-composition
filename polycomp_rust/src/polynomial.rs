@@ -1,4 +1,7 @@
+use rand::{rngs::StdRng, Rng};
+
 #[derive(Clone)]
+#[derive(Debug)]
 pub struct Polynomial {
     degree: Option<usize>,  // degree of the polynomial. None for 0 polynomial
     coefficients: Vec<f64>, // coefficients[0] is the constant term
@@ -12,6 +15,24 @@ impl Polynomial {
         };
         poly.update_degree();
         poly
+    }
+
+    pub fn get_degree(&self) -> Option<usize> {
+        self.degree
+    }
+
+    pub fn get_coefficients(&self) -> Vec<f64> {
+        self.coefficients.clone()
+    }
+
+    pub fn set_coefficients(&mut self, coefficients: Vec<f64>) {
+        self.coefficients = coefficients;
+        self.update_degree();
+    }
+
+    pub fn random_polynomial(degree: usize, rng: &mut StdRng, range_start: f64, range_end: f64) -> Polynomial {
+        let coefficients: Vec<f64> = (0..=degree).map(|_| rng.gen_range(range_start..range_end)).collect();
+        Polynomial::new(coefficients)
     }
 
     pub fn update_degree(&mut self) {
@@ -59,6 +80,17 @@ impl Polynomial {
         let mut result = self.coefficients[degree];
         for i in (0..degree).rev() {
             result = result * x + self.coefficients[i];
+        }
+        return result;
+    }
+
+    /// Evaluate the composition of a list of polynomials at x
+    /// Returns p_n(p_{n-1}(...p_1(x)))
+    /// Might be better than computing the composition and then evaluating it
+    pub fn eval_composition(polys: Vec<Polynomial>, x: f64) -> f64 {
+        let mut result = x;
+        for poly in polys.iter() {
+            result = poly.eval(result);
         }
         return result;
     }
@@ -136,6 +168,16 @@ impl Polynomial {
         result
     }
 
+    /// Compose a list of polynomials. Returns p_n(p_{n-1}(...p_1(x)))
+    pub fn compose_vec(polys: Vec<Polynomial>) -> Polynomial {
+        let mut result = Polynomial::new(vec![0.0, 1.0]);
+        for poly in polys.iter() {
+            result = result.compose(poly);
+        }
+        result
+    }
+
+    /// Convolve two polynomials. Returns the convolution of self and other
     pub fn convolve(&self, other: &Polynomial) -> Polynomial {
         // If either polynomial is zero, return a zero polynomial
         if self.is_zero() || other.is_zero() {
@@ -159,6 +201,53 @@ impl Polynomial {
         // Update the degree of the resulting polynomial
         result.update_degree(); // This will adjust the degree correctly
         result
+    }
+
+    /// Compute the squared L2 norm of the difference between two polynomials
+    pub fn l2_norm(&self, other: &Polynomial) -> f64 {
+        let diff = self.add(&other.scale(-1.0));
+
+        if diff.is_zero() {
+            return 0.0;
+        }
+
+        let diff_degree = diff.degree.unwrap();
+
+        let r1 = diff
+            .coefficients
+            .iter()
+            .enumerate()
+            .map(|(i, &c)| (c * c) / (2 * i + 1) as f64)
+            .sum::<f64>();
+
+        let mut r2: f64 = 0.0;
+
+        for i in 1..(diff_degree+1) {
+            for j in 0..i {
+                // Apply the formula for valid (i, j) pairs
+                let diff_i = diff.coefficients[i];
+                let diff_j = diff.coefficients[j];
+                r2 += (diff_i * diff_j) / ((i + j + 1) as f64);
+            }
+        }
+        return r1 + r2 * 2.0;
+
+    }
+
+    pub fn derivative(&self) -> Polynomial {
+        if self.is_zero() {
+            return Polynomial::new(vec![]);
+        }
+
+        let degree = self.degree.unwrap();
+        let mut result = Polynomial::new(vec![0.0; degree]);
+
+        for i in 1..=degree {
+            result.coefficients[i - 1] = self.coefficients[i] * i as f64;
+        }
+
+        result.update_degree();
+        return result;
     }
 
     pub fn to_string(&self) -> String {
