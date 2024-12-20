@@ -4,75 +4,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 from typing import Optional, List, Tuple, Any
 import time
-
-
-def compose(p1, p2):
-    # Compose two polynomials (p1(p2))
-
-    coef1 = p1.coef
-    coef2 = p2.coef
-
-    max_degree = (len(coef1) - 1) * (len(coef2) - 1)
-    result = np.zeros(max_degree + 1)
-
-    # Compute powers of p2 efficiently
-    power = np.ones(1)  # p2^0 = 1
-    for i, c in enumerate(coef1):
-        if c != 0:  # Skip zero coefficients
-            result[:len(power)] += c * power
-        if i < len(coef1) - 1:  # Don't compute unnecessary power
-            power = np.convolve(power, coef2)
-
-    # Trim trailing zeros and create a Polynomial object
-    return P.Polynomial(np.trim_zeros(result, 'b'))
-
-
-def compose_layers(layers):
-    # Compose a list of polynomials in order, where each poly is applied in
-    # order (meaning given [p1, p2, p3], the output is p3(p2(p1(x))))
-    r = layers[0]
-    for i in range(1, len(layers)):
-        r = compose(layers[i], r)
-    return r
-
-
-def l2_norm(p1, p2):
-    # Extract coefficients as NumPy arrays
-    c1 = p1.coef
-    c2 = p2.coef
-
-    # Ensure both polynomials have the same degree
-    max_degree = max(len(c1), len(c2))
-    c1 = np.pad(c1, (0, max_degree - len(c1)))
-    c2 = np.pad(c2, (0, max_degree - len(c2)))
-
-    # Compute the difference of coefficients
-    diff = c1 - c2
-
-    # Compute the first part of the sum
-    i = np.arange(max_degree)
-    r1 = np.sum(diff**2 / (2*i + 1))
-
-    # Compute the second part of the sum
-    i, j = np.meshgrid(i, i)
-    mask = i > j
-    r2 = 2 * np.sum(diff[i[mask]] * diff[j[mask]] / (i[mask] + j[mask] + 1))
-
-    return r1 + r2
-
-
-def plot_polynomials(comp, target, iteration):
-    x_vals = np.linspace(0, 1, 200)
-    y_comp = comp(x_vals)
-    y_target = target(x_vals)
-
-    plt.clf()
-    plt.plot(x_vals, y_comp, label="Composed Polynomial", color='blue')
-    plt.plot(x_vals, y_target, label="Target Polynomial",
-             color='red', linestyle='--')
-    plt.title(f"Iteration {iteration}")
-    plt.legend()
-    plt.pause(0.05)
+from polynomial_utils import compose_layers, plot_polynomials, l_inf_norm
+import warnings
 
 
 def gradient_descent(
@@ -92,7 +25,8 @@ def gradient_descent(
         verbose: bool = True,
         plot: bool = True,
         use_scale_lr: bool = False,
-        print_frequency: int = 250) -> Tuple[List[P.Polynomial], List[Any]]:
+        print_frequency: int = 250,
+        linspace_range: Tuple[int, int] = (0, 1)) -> Tuple[List[P.Polynomial], List[Any]]:
     """
     Perform gradient descent to approximate a target polynomial using a composition of smaller polynomials.
 
@@ -159,7 +93,7 @@ def gradient_descent(
     lrs = lrs[:-1][::-1]
 
     if (target is None and prod != random_target_poly_deg) or (target is not None and prod != target.degree()):
-        raise Warning(
+        warnings.warn(
             "The product of the degrees of the initial polynomials "
             f"({'x'.join(map(str, random_initialization_deg))}={prod}) "
             "is not equal to the degree of the target polynomial "
@@ -177,7 +111,7 @@ def gradient_descent(
         # weights blowing up when composing polynomials, which gradient descent
         # has a hard time correcting
 
-    forward_pass_pts = np.linspace(0, 1, batch_size)
+    forward_pass_pts = np.linspace(linspace_range[0], linspace_range[1], batch_size)
 
     losses = []
     loss = 1e10
@@ -284,13 +218,13 @@ def gradient_descent(
             if verbose:
                 print(f"{iteration}, {loss}")
             if plot:
-                plot_polynomials(compose_layers(layers), target, iteration)
+                plot_polynomials(compose_layers(layers), target, iteration, linspace_range)
         io_timer += time.process_time() - st5
         iteration += 1
 
     main_loop_timer += time.process_time() - st1
     
-    loss = np.max(np.abs(target(forward_pass_pts) - compose_layers(layers)(forward_pass_pts)))
+    loss = l_inf_norm(target, compose_layers(layers)) # np.max(np.abs(target(forward_pass_pts) - compose_layers(layers)(forward_pass_pts)))
     losses.append(loss)
 
     if verbose:
@@ -302,7 +236,7 @@ def gradient_descent(
         print(compose_layers(layers).__str__().replace("·", ""))
 
     if plot:
-        plot_polynomials(compose_layers(layers), target, iteration)
+        plot_polynomials(compose_layers(layers), target, iteration, linspace_range)
         plt.ioff()
         plt.show()
 
@@ -365,9 +299,15 @@ def main():
 
 if __name__ == '__main__':
     use_adam = True
-    max_iter = 25000
+    max_iter = 50000
     seed = 473750
+    #gradient_descent(use_adam=use_adam, max_iter=max_iter, seed=seed)
 
-    gradient_descent(use_adam=use_adam, max_iter=max_iter, seed=seed)
+    target = P.Polynomial(np.zeros(7))
+    target.coef[-1] = 1
+    random_initialization_deg = [5]
+    linspace_range = (-1, 1)
+
+    gradient_descent(use_adam=use_adam, max_iter=max_iter, seed=seed, random_initialization_deg=random_initialization_deg, target=target, random_target_poly_deg=target.degree(), linspace_range=linspace_range)
 
     # main()
