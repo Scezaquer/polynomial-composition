@@ -34,3 +34,5 @@ Checkout:
 - Ritt's Theorem
 - Genetic algorithms
 - Symbolic-Numeric Hybrid Methods
+
+https://www.scirp.org/pdf/alamt_2022011815280635.pdf

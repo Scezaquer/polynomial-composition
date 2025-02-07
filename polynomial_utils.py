@@ -21,7 +21,7 @@ def compose(p1, p2):
             power = np.convolve(power, coef2)
 
     # Trim trailing zeros and create a Polynomial object
-    return P.Polynomial(np.trim_zeros(result, 'b'))
+    return P.Polynomial(result)
 
 
 def compose_layers(layers):
@@ -69,8 +69,8 @@ def plot_polynomials(comp, target, iteration, linspace_range=(0, 1)):
              color='red', linestyle='--')
     plt.title(f"Iteration {iteration}")
     plt.legend()
-    plt.show()
-    #plt.pause(0.05)
+    #plt.show()
+    plt.pause(0.5)
 
 
 def l2_coefficient_norm(p1, p2):
