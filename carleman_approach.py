@@ -7,43 +7,7 @@ import random
 from polynomial_utils import compose, compose_layers, l2_norm, l2_coefficient_norm, plot_polynomials
 
 
-def carleman(j: int, k: int, poly: Polynomial):
-    """
-    Given a polynomial, return the elements of the Carleman matrix at the jth
-    column and kth row.
-    """
 
-    # Take jth power of the polynomial
-    poly_j = poly**j
-
-    # Take the kth derivative of the jth power of the polynomial
-    poly_j_k = poly_j.deriv(k)
-
-    # Evaluate the kth derivative of the jth power of the polynomial at 0
-    return 1/factorial(k)*poly_j_k(0)
-
-
-def carleman_matrix(poly: Polynomial, n: int, m: int = 0):
-    """
-    Given a polynomial, return the Carleman matrix of the polynomial up to the
-    nth row and mth column. If m is not provided, the Carleman matrix will be
-    square.
-    """
-    if m == 0:
-        m = n
-
-    # Initialize the Carleman matrix
-    carleman_matrix = np.zeros((n, m))
-
-    # Fill the Carleman matrix
-    for i in range(n):
-        poly_j = poly**i
-        carleman_matrix[i, :len(poly_j.coef)] = poly_j.coef[:m]  # marginally faster than a for loop
-        # for j in range(m):
-        #     carleman_matrix[i, j] = poly_j.coef[j] if j < len(poly_j.coef) else 0
-        #     # carleman_matrix[i, j] = carleman(i, j, poly)
-
-    return carleman_matrix
 
 
 def carleman_solver(h, g, target_poly: Polynomial, iteration: int = 10, size: int = 10, w=None, verbose=False):

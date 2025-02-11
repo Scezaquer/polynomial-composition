@@ -4,47 +4,9 @@ from numpy import polynomial as Polynomial
 import matplotlib.pyplot as plt
 import time
 import random
-from polynomial_utils import compose, compose_layers, l2_norm, l2_coefficient_norm, plot_polynomials
+from polynomial_utils import compose, compose_layers, l2_norm, l2_coefficient_norm, plot_polynomials, carleman, carleman_matrix
 from tqdm import tqdm
 
-
-def carleman(j: int, k: int, poly: Polynomial):
-    """
-    Given a polynomial, return the elements of the Carleman matrix at the jth
-    column and kth row.
-    """
-
-    # Take jth power of the polynomial
-    poly_j = poly**j
-
-    # Take the kth derivative of the jth power of the polynomial
-    poly_j_k = poly_j.deriv(k)
-
-    # Evaluate the kth derivative of the jth power of the polynomial at 0
-    return 1/factorial(k)*poly_j_k(0)
-
-
-def carleman_matrix(poly: Polynomial, n: int, m: int = 0):
-    """
-    Given a polynomial, return the Carleman matrix of the polynomial up to the
-    nth row and mth column. If m is not provided, the Carleman matrix will be
-    square.
-    """
-    if m == 0:
-        m = n
-
-    # Initialize the Carleman matrix
-    carleman_matrix = np.zeros((n, m))
-
-    # Fill the Carleman matrix
-    for i in range(n):
-        poly_j = poly**i
-        carleman_matrix[i, :len(poly_j.coef)] = poly_j.coef[:m]  # marginally faster than a for loop
-        # for j in range(m):
-        #     carleman_matrix[i, j] = poly_j.coef[j] if j < len(poly_j.coef) else 0
-        #     # carleman_matrix[i, j] = carleman(i, j, poly)
-
-    return carleman_matrix
 
 def carleman_solver(h, g, target_poly: Polynomial, iteration: int = 10, size: int = 10, w=None, verbose=False):
     """
@@ -105,13 +67,12 @@ def solve_for_h(g, target_poly):
     # Find shift variable d
     h0_poly = g - target_poly.coef[0]
     roots = h0_poly.roots()
-    real_roots = [root for root in roots if np.isreal(root)]
+    real_roots = [root.real for root in roots] # if np.isreal(root)]
     if len(real_roots) == 0:
         raise ValueError("No real roots found")
     
     solutions = []
     for d in real_roots:
-        d = d.real
     #d = min(real_roots, key=abs).real
 
         # Shift g and target_poly
@@ -181,10 +142,10 @@ def carleman_upper_triangular_solver(h, g, target_poly: Polynomial, iteration: i
 
 
 def new_poly(width):
-    p1 = Polynomial.Polynomial(np.random.uniform(-width, width, 4))
-    p2 = Polynomial.Polynomial(np.random.uniform(-width, width, 4))
-    # p1 = Polynomial.Polynomial.fromroots([-1, 0, 1])
-    # p2 = Polynomial.Polynomial([0, -3, 0, 1])
+    # p1 = Polynomial.Polynomial(np.random.uniform(-width, width, 4))
+    # p2 = Polynomial.Polynomial(np.random.uniform(-width, width, 4))
+    p1 = Polynomial.Polynomial.fromroots(np.random.uniform(-width, width, 3))
+    p2 = Polynomial.Polynomial.fromroots(np.random.uniform(-width, width, 3))
     target_poly = compose(p1, p2)
     return p1, p2, target_poly
 
@@ -226,11 +187,11 @@ if __name__ == "__main__":
     converged_real_roots = []
     did_not_converge_real_roots = []
     
-    for i in tqdm(range(500)):
+    for i in tqdm(range(1000)):
         width = 1.5
 
         nbr_real_roots = 0
-        while nbr_real_roots != 1:
+        while nbr_real_roots != 3:
             p1, p2, target_poly = new_poly(width)
             roots = target_poly.roots()
             real_roots = [np.real(root) for root in roots if np.isreal(root)]
@@ -246,11 +207,15 @@ if __name__ == "__main__":
         g0 = Polynomial.Polynomial(np.random.uniform(-0.5, 0.5, 4))
 
         s1 = time.time()
-        h, g = carleman_upper_triangular_solver(h0, g0, target_poly, 100, verbose=False)
+        try:
+            h, g = carleman_upper_triangular_solver(h0, g0, target_poly, 100, verbose=False)
+        except:
+            continue
         stats_10_time.append(time.time() - s1)
 
         composed = compose(g, h)  # * factor
         error = l2_coefficient_norm(composed, target_poly)
+
         # print(f"Attempt {i} | Error: {error:.4f}")
         stats_10.append(error)
 
@@ -263,12 +228,12 @@ if __name__ == "__main__":
             converged[nbr_real_roots] += 1
             converged_real_roots.extend(real_roots)
 
-        s2 = time.time()
-        h, g = carleman_solver(h0, g0, target_poly, 100)
-        stats_100_time.append(time.time() - s2)
-        composed = compose_layers([h, g])
-        error = l2_coefficient_norm(composed, target_poly)
-        stats_100.append(error)
+        # s2 = time.time()
+        # h, g = carleman_solver(h0, g0, target_poly, 100)
+        # stats_100_time.append(time.time() - s2)
+        # composed = compose_layers([h, g])
+        # error = l2_coefficient_norm(composed, target_poly)
+        # stats_100.append(error)
 
         # if i % 100 == 0:
         #     print(i, end='\r')
