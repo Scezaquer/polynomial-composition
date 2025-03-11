@@ -5,7 +5,9 @@ from math import factorial
 
 
 def compose(p1, p2):
-    # Compose two polynomials (p1(p2))
+    """
+    Return the composition of two polynomials, p1(p2).
+    """
 
     coef1 = p1.coef
     coef2 = p2.coef
