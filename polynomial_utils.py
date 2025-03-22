@@ -97,6 +97,10 @@ def l_inf_norm(p1, p2):
     return np.max(np.abs(p1(pts) - p2(pts)))
 
 
+def l_inf_coefficient_norm(p1, p2):
+    return np.max(np.abs(p1.coef - p2.coef))
+
+
 def carleman(j: int, k: int, poly: Polynomial):
     """
     Given a polynomial, return the elements of the Carleman matrix at the jth
