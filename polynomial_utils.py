@@ -4,7 +4,7 @@ from numpy import polynomial as Polynomial
 from math import factorial
 
 
-def compose(p1, p2):
+def compose(p1, p2, dtype=np.float64):
     """
     Return the composition of two polynomials, p1(p2).
     """
@@ -13,10 +13,10 @@ def compose(p1, p2):
     coef2 = p2.coef
 
     max_degree = (len(coef1) - 1) * (len(coef2) - 1)
-    result = np.zeros(max_degree + 1)
+    result = np.zeros(max_degree + 1, dtype=dtype)
 
     # Compute powers of p2 efficiently
-    power = np.ones(1)  # p2^0 = 1
+    power = np.ones(1, dtype=dtype)  # p2^0 = 1
     for i, c in enumerate(coef1):
         if c != 0:  # Skip zero coefficients
             result[:len(power)] += c * power

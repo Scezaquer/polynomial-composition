@@ -49,20 +49,9 @@ def solve_for_h(g, target_poly):
             h = Polynomial.Polynomial(list(h.coef) + [hi])
 
         h = h + d
-
-        # turns out this doesn't use q[0] so we can just use target_poly instead of shifted_q
-        # h1 = target_poly.coef[1] / shifted_g.coef[1]
-        # h2 = (target_poly.coef[2] - shifted_g.coef[2] * h1**2) / shifted_g.coef[1]
-        # h3 = (target_poly.coef[3] - shifted_g.coef[3] * h1**3 - shifted_g.coef[2] * 2 * h1 * h2) / shifted_g.coef[1]
-        # h = Polynomial.Polynomial([d, h1, h2, h3])
-
         solutions.append(h)
     # Is there a better way to choose the best h?
 
-    # print(np.argmin(np.abs(real_roots)), np.argmin([l2_coefficient_norm(compose(g, h), target_poly) for h in solutions]))
-    # print(real_roots)
-    # print([l2_coefficient_norm(compose(g, h), target_poly) for h in solutions])
-    # print()
     h = min(solutions, key=lambda h: l2_coefficient_norm(
         compose(g, h), target_poly))
     return h
@@ -124,13 +113,14 @@ def new_poly(width, m=3, n=3):
     return p1, p2, target_poly
 
 
-PIXEL_WIDTH = 1000
-PIXEL_HEIGHT = 1000
+PIXEL_WIDTH = 100
+PIXEL_HEIGHT = 100
+DEPTH = 9
 ITER = 2
 WIDTH = 15
 
 if __name__ == "__main__":
-    np.random.seed(2)  # for (3, 3), 5 is a good seed where x and y are h1 and h2
+    np.random.seed(5)
 
     start = time.time()
 
@@ -138,16 +128,21 @@ if __name__ == "__main__":
 
     x = np.linspace(-WIDTH, WIDTH, PIXEL_WIDTH)
     y = np.linspace(-WIDTH, WIDTH, PIXEL_HEIGHT)
+    if DEPTH != 1:
+        z = np.linspace(-WIDTH, WIDTH, DEPTH)
+    else:
+        z = [0]
 
     p1, p2, target_poly = new_poly(1.5, deg_h, deg_g)
 
     # Create image array (white by default)
-    image = np.ones((PIXEL_HEIGHT, PIXEL_WIDTH))
+    image = np.ones((DEPTH, PIXEL_HEIGHT, PIXEL_WIDTH))
 
     # Function to process a single pixel
     def process_pixel(args):
-        i, j, i_idx, j_idx = args
+        i, j, k, i_idx, j_idx, k_idx = args
         p2_copy = Polynomial.Polynomial(p2.coef.copy())
+        p2_copy.coef[2] = k
         p2_copy.coef[3] = i
         p2_copy.coef[4] = j
 
@@ -160,7 +155,7 @@ if __name__ == "__main__":
             composed = compose(g, h)
             error = l2_coefficient_norm(composed, target_poly)
 
-            return (j_idx, i_idx, error)
+            return (k_idx, j_idx, i_idx, error)
             # If error is small enough (converged), return black pixel coords
             if error <= 1e-6:
                 return (j_idx, i_idx, 0)  # Black pixel for convergence
@@ -172,29 +167,99 @@ if __name__ == "__main__":
     tasks = []
     for i_idx, i in enumerate(x):
         for j_idx, j in enumerate(y):
-            tasks.append((i, j, i_idx, j_idx))
+            for k_idx, k in enumerate(z):
+                tasks.append((i, j, k, i_idx, j_idx, k_idx))
 
     # Use multiprocessing to distribute the tasks
     print(f"Processing {len(tasks)} pixels using {cpu_count()} cores...")
     with Pool(processes=cpu_count()) as pool:
         results = list(tqdm(pool.imap(process_pixel, tasks), total=len(tasks)))
-    
+
     # Update the image based on results
     for result in results:
         if result is not None:
-            j_idx, i_idx, value = result
-            image[j_idx, i_idx] = value
+            k_idx, j_idx, i_idx, value = result
+            image[k_idx, j_idx, i_idx] = value
 
-    # Plot the image
-    plt.figure(figsize=(10, 10))
-    # Add a small constant to avoid log(0) errors and apply log transform
-    log_image = np.log1p(image)  # np.log1p = log(1+x)
-    plt.imshow(log_image, cmap='viridis', extent=[-WIDTH, WIDTH, -WIDTH, WIDTH], norm=plt.cm.colors.LogNorm())
-    plt.colorbar(label='Log Error (lower is better)')
-    plt.title('Convergence Map (Log Scale)')
-    plt.xlabel('p2.coef[1]')
-    plt.ylabel('p2.coef[2]')
-    plt.savefig('convergence_map.png', dpi=300)
+    # Calculate grid dimensions for the subplots
+    grid_rows = int(np.ceil(np.sqrt(DEPTH)))
+    grid_cols = int(np.ceil(DEPTH / grid_rows))
+
+    # Create figure with more compact layout
+    fig, axs = plt.subplots(grid_rows, grid_cols, figsize=(
+        grid_cols * 3, grid_rows * 3), squeeze=False)
+    fig.suptitle(
+        'Convergence Maps (Log Scale) for Different Depths', fontsize=14)
+
+    # Find the global min/max for consistent color scaling
+    all_values = []
+    for k_idx in range(DEPTH):
+        # Add a small constant to avoid log(0) errors
+        log_image = np.log1p(image[k_idx])
+        all_values.append(log_image)
+
+    all_values = np.concatenate([img.flatten() for img in all_values])
+    vmin, vmax = np.nanmin(all_values), np.nanmax(all_values)
+
+    # Create a single normalization for all plots
+    norm = plt.cm.colors.LogNorm(vmin=vmin, vmax=vmax)
+
+    # Create a new figure with more space
+    plt.close(fig)  # Close the previous figure
+    fig, axs = plt.subplots(grid_rows, grid_cols,
+                            # Increased figure size with more space for colorbar
+                            figsize=(grid_cols * 4 + 1, grid_rows * 3.5),
+                            squeeze=False,
+                            constrained_layout=True)  # Use constrained_layout instead of tight_layout
+
+    fig.suptitle('Convergence Maps (Log Scale) for Different Depths',
+                 fontsize=16, y=0.98)  # Move title up
+
+    for k_idx in range(DEPTH):
+        # Calculate the grid position
+        row = k_idx // grid_cols
+        col = k_idx % grid_cols
+
+        # Apply log transform
+        log_image = np.log1p(image[k_idx])
+
+        # Plot the slice with shared normalization
+        im = axs[row, col].imshow(log_image, cmap='viridis',
+                                  extent=[-WIDTH, WIDTH, -WIDTH, WIDTH],
+                                  norm=norm)
+
+        # Add a red point at the original polynomial's coefficients
+        axs[row, col].plot(p2.coef[3], p2.coef[4], 'ro', markersize=5,
+                           label='Original p2 coefficients')
+
+        axs[row, col].set_title(
+            f'Depth {k_idx}: p2.coef[2]={z[k_idx]:.2f}', fontsize=12)
+        axs[row, col].set_xlabel('p2.coef[3]', fontsize=10)
+
+        # Add y-label to the leftmost plots
+        if col == 0:
+            axs[row, col].set_ylabel('p2.coef[4]', fontsize=10)
+
+        # Make tick labels smaller but not too small
+        axs[row, col].tick_params(labelsize=8)
+
+    # Hide any unused subplots
+    for idx in range(DEPTH, grid_rows * grid_cols):
+        row = idx // grid_cols
+        col = idx % grid_cols
+        axs[row, col].set_visible(False)
+
+    # Create colorbar with more space and better positioning
+    # Adjust the constrained_layout_pads if needed
+    plt.tight_layout()
+    
+    # Add colorbar with specified position and size
+    cbar_ax = fig.add_axes([0.93, 0.15, 0.02, 0.7])  # Moved further right
+    cbar = fig.colorbar(im, cax=cbar_ax)
+    cbar.ax.tick_params(labelsize=10)
+    cbar.set_label('Log Error (lower is better)', fontsize=12)
+
+    plt.savefig('convergence_map_depths.png', dpi=300, bbox_inches='tight')
     plt.show()
 
     print(f"Runtime: {time.time() - start:.2f} seconds")
